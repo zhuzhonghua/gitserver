@@ -24,7 +24,7 @@
   (swap! cmd-handlers assoc cmd handler))
 
 (defmacro defcmd [cmd arg & body]
-  `(reg-cmd-handler ~cmd (fn ~arg (do ~@body))))
+  `(reg-cmd-handler (str '~cmd) (fn ~arg (do ~@body))))
 
 ;; all clients
 (def clients (atom {}))
@@ -33,14 +33,10 @@
 
 (def server-sock (atom nil))
 
-(defn client-str [client]
-  (str (:addr client) ":" (:port client)))
-
-(defn client-key [addr port]
-  (str addr ":" port))
-
 (defn send-cmd [client cmd]
-  (send-data @server-sock send-serial client (.getBytes cmd)))
+  (let [strcmd (str cmd)]
+    (println tag "[send-cmd]" strcmd)
+    (send-data @server-sock send-serial client (.getBytes strcmd))))
 
 (defn new-client [^InetAddress addr port]
   (println tag "new client" addr port)
@@ -63,7 +59,7 @@
 (defn handle-cmd [client cmd]
   (println tag "handle cmd" cmd)
   (if-let [handler (get @cmd-handlers (nth cmd 0))]
-    (apply handler (list client cmd))
+    (apply handler (cons client (rest cmd)))
     (println tag "unknown cmd" (client-str client) cmd)))
 
 (defn put-in-queue [client cmd]
@@ -73,7 +69,7 @@
   (let [inqueue (:inqueue client)]
     (loop [size (size-queue inqueue)]
       (when (> size 0)
-        (handle-cmd client (poll-queue inqueue))
+        (handle-cmd client (str/split (poll-queue inqueue) #" "))
         (recur (- size 1))))))
 
 (defn check-resending [client]

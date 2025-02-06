@@ -7,6 +7,12 @@
         '[java.util.zip CRC32]
         '[java.net DatagramPacket InetAddress])
 
+(defn client-str [client]
+  (str (:addr client) ":" (:port client)))
+
+(defn client-key [addr port]
+  (str addr ":" port))
+
 (def ^:const MAXLEN 512)
 
 (def ^:const recv-tag "<----")
@@ -15,6 +21,12 @@
 (def ^:const TYPE-ACK 0)
 (def ^:const TYPE-DATA 1)
 (def ^:const TYPE-MULTI-DATA 2)
+
+(defn get-type [t]
+  (cond (= t TYPE-ACK) "ACK"
+        (= t TYPE-DATA) "DATA"
+        (= t TYPE-MULTI-DATA) "MULTI-DATA"
+        :else (str "UNKNOWN type" t)))
 
 ;; type lendata
 (def ^:const max-multi-data-len (- MAXLEN 1 8 8 4))
@@ -65,14 +77,14 @@
     (.getValue check)))
 
 (defn write-type [bs tp]
-  (println send-tag "write-type" tp)
+;;  (println send-tag "write-type" (get-type tp))
   (aset-byte bs 0 (unchecked-byte tp)))
 
 (defn read-type [bs]
   (aget bs 0))
 
 (defn write-serial [bs offset serial]
-  (println send-tag "write-serial" serial)
+;;  (println send-tag "write-serial" serial)
   (long->bytes bs offset serial))
 
 (defn read-serial [bs offset]
@@ -85,7 +97,7 @@
   (bytes->int bs offset))
 
 (defn write-check-sum [bs offset cs]
-  (println send-tag "write-check-sum" cs)
+;;  (println send-tag "write-check-sum" cs)
   (long->bytes bs offset cs))
 
 (defn read-check-sum [bs offset]
@@ -114,7 +126,7 @@
   (.size q))
 
 (defn write-sock-packet [sock client bs]
-  (println send-tag "write-sock-packet size" (alength bs) (:addr client) (:port client))
+;;  (println send-tag "write-sock-packet size" (alength bs) "to client" (client-str client))
   (.send sock (DatagramPacket. bs (alength bs) (:addr client) (:port client))))
 
 (defn write-sock-bytes [sock client bs serial cs]
@@ -126,7 +138,7 @@
         (println send-tag "sending not over cache it size" (size-queue (:outqueue client))))))
 
 (defn write-sock-ack [sock client serial cs]
-  (println send-tag "write-sock-ack" serial)
+;;  (println send-tag "write-sock-ack serial" serial)
   (let [bs (bytes (byte-array (+ 1 8 8)))]
     (write-type bs TYPE-ACK)
     (write-serial bs 1 serial)
@@ -175,11 +187,13 @@
 (defn send-data [sock send-serial client data]
   (if (> (alength data) max-data-len)
     (do (send-len-data sock client send-serial data (alength data))
-        (println send-tag "send-len-data len" (alength data)))
+;;        (println send-tag "send-len-data len" (alength data))
+        )
 
-    (do (println send-tag "send-type-data len" (alength data))
-        (send-type-data sock client (swap! send-serial inc) data)
-        )))
+    (do
+;;      (println send-tag "send-type-data len" (alength data))
+      (send-type-data sock client (swap! send-serial inc) data)
+      )))
 
 (defn accu-partial [client partialin partialoffset tlen bs offset len]
   (when (nil? @partialin)
@@ -190,10 +204,13 @@
   (swap! partialoffset + len)
 
   (cond (= @partialoffset tlen)
-        (do (println recv-tag "partial recv full" tlen)
+        (do (let [cmd (String. @partialin)]
+              (offer-queue (:inqueue client) cmd)
+              (println recv-tag "partial recv full" tlen "cmd" cmd))
+
             (reset! partialin nil)
-            (reset! partialoffset 0)
-            (offer-queue (:inqueue client) (str/split (String. @partialin) #" ")))
+            (reset! partialoffset 0))
+;;            (offer-queue (:inqueue client) (str/split (String. @partialin) #" ")))
 
         (< @partialoffset tlen)
         (println recv-tag "partial recv not over"
@@ -206,13 +223,13 @@
 (defn check-recv-serial [client serial]
   (let [recvmaxserial (:recvmaxserial client)]
     (if (>= @recvmaxserial serial)
-      (println recv-tag "partial recv past serial just ignore"
+      (println recv-tag "recv past serial just ignore"
                @recvmaxserial serial)
 
-      (do (println recv-tag "update recv partial max serial"
-                   @recvmaxserial serial)
-          (reset! (:recvmaxserial client) serial)
-          (reset! (:lastrecvtime client) (get-sys-time))))))
+      (do
+;;        (println recv-tag "update recv max serial" "last" @recvmaxserial "new" serial)
+        (reset! (:recvmaxserial client) serial)
+        (reset! (:lastrecvtime client) (get-sys-time))))))
 
 (defn recv-partial [client serial tlen bs offset len]
   (when (check-recv-serial client serial)
@@ -235,14 +252,16 @@
     (when (not (nil? @(:partialin client)))
       (throw (Exception. (str "internal error partial not over" serial cmd))))
 
+    (println recv-tag "recv-cmd" cmd)
     (offer-queue (:inqueue client) cmd)))
 
 (defn recv-ack [sock client serial cs]
-  (if (:sending client)
+  (if @(:sending client)
     (let [[mserial mcs bs] @(:sending client)]
       (cond (and (= serial mserial) (= cs mcs))
-            (do (println recv-tag "recv-ack" serial)
-                (send-next sock client))
+            (do
+;;              (println recv-tag "recv-ack serial" serial)
+              (send-next sock client))
 
             (< serial mserial)
             (println recv-tag "ignore old serial may send multi times")
@@ -259,7 +278,8 @@
       (println recv-tag "check-sum not equal" cs self-cs bs offset len)
 
       (do (write-sock-ack sock client serial cs)
-          (recv-cmd client serial (str/split (String. bs offset cmd-len) #" "))))))
+          (recv-cmd client serial (String. bs offset cmd-len))
+          ))))
 
 (defn recv-packet [sock client bs len]
   (cond (< len 1)
@@ -275,10 +295,10 @@
         (let [type (read-type bs)
               serial (read-serial bs 1)
               cs (read-check-sum bs (+ 1 8))]
-          (println recv-tag "recv-packet" type serial cs)
+;;          (println recv-tag "recv-packet type" (get-type type) "serial" serial "cs" cs)
           (condp = type
             TYPE-ACK (recv-ack sock client serial cs)
             TYPE-DATA (check-recv-data sock client serial cs bs (+ 1 8 8) len)
             TYPE-MULTI-DATA (check-recv-multi-data sock client serial cs bs (+ 1 8 8) len)
 
-            (println recv-tag "recv-packet unknown type" type serial cs)))))
+            (println recv-tag "recv-packet unknown type" type "serial" serial "cs" cs)))))

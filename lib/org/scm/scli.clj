@@ -34,7 +34,8 @@
   (send-data @client-sock send-serial @client (.getBytes cmd)))
 
 (defn handle-cmd [client cmd]
-  (println "received" cmd))
+;;  (println "received" cmd)
+  )
 
 (defn check-resending []
   (when (and (not (nil? @(:sending @client)))

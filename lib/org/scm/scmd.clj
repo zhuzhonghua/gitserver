@@ -3,8 +3,9 @@
 (require '[org.scm.ssrv :refer :all]
          '[org.scm.sgit :refer :all])
 
-(defcmd "gitdir" [client cmd]
-  "gitdir /some/path"
-  (let [path (nth cmd 1)
-        dirs (sgit-list-head-dir path)]
+(defcmd dir [client & args]
+  "dir /some/path or just the command dir with no arguments"
+  (let [dirs (if (nil? args)
+               (sgit-list-root)
+               (sgit-list-head-dir (first args)))]
     (send-cmd client dirs)))

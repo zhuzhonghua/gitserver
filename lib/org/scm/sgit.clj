@@ -20,6 +20,36 @@
   (println "init git repo " path)
   (reset! git (Git/open (File. path))))
 
+(defn sgit-get-fd [dirwalk mode]
+  {:mode (str mode) ;; 100644 040000
+   :tree (= mode FileMode/TREE) ;; true or false
+   :type (Constants/typeString (.getObjectType mode)) ;; blob or tree
+   :sha1 (-> (.getObjectId dirwalk 0)
+             .name)
+   ;; unique sha1 value
+   ;; real path under above path path
+   :path (.quote QuotedString/GIT_PATH (.getPathString dirwalk))})
+
+(defn sgit-list-root []
+  (let [repo (.getRepository @git)
+        head (.exactRef repo Constants/HEAD)
+        walk (RevWalk. repo)
+        commit (->> head
+                    .getObjectId
+                    (.parseCommit walk))
+        tree (.getTree commit)
+        dirwalk (TreeWalk. repo)]
+
+    (.addTree dirwalk tree)
+    (.setRecursive dirwalk false)
+
+    (loop [fds []]
+      (if-not (.next dirwalk)
+        fds
+        (recur (conj fds
+                     (sgit-get-fd dirwalk (.getFileMode dirwalk 0)))
+               )))))
+
 (defn sgit-list-head-dir [path]
   (let [repo (.getRepository @git)
         head (.exactRef repo Constants/HEAD)
@@ -58,13 +88,5 @@
       (loop [fds []]
         (if-not (.next dirwalk)
           fds
-          (let [mode (.getFileMode dirwalk 0)]
-            (recur (conj fds
-                         {:mode mode ;; 100644 040000
-                          :tree (= mode FileMode/TREE) ;; true or false
-                          :type (Constants/typeString (.getObjectType mode)) ;; blob or tree
-                          :sha1 (-> (.getObjectId dirwalk 0)
-                                    .name)
-                          ;; unique sha1 value
-                          ;; real path under above path path
-                          :path (.quote QuotedString/GIT_PATH (.getPathString dirwalk))}))))))))
+          (recur (conj fds
+                       (sgit-get-fd dirwalk (.getFileMode dirwalk 0)))))))))
