@@ -4,7 +4,8 @@
          '[org.scm.sgit :refer :all])
 
 (defcmd dir [client & args]
-  "dir /some/path or just the command dir with no arguments"
+  "dir /some/path or just the command dir with no arguments
+git ls-tree HEAD <path>|<empty>"
   (let [dirs (if (nil? args)
                (sgit-list-root)
                (sgit-list-head-dir (first args)))]
