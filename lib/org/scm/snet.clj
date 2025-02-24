@@ -38,8 +38,8 @@
   (str "[:id " (:id inst) " :addr " (:addr inst) "]"))
 
 (defn err-throw [& args]
-  (apply println arg)
-  (throw (Exception. (str/join " " arg))))
+  (apply println args)
+  (throw (Exception. (str/join " " args))))
 
 (defn err-cb [key inst fn-err]
   (.cancel key)
@@ -131,7 +131,7 @@
         (.poll (:outqueue client))
         ))
 
-    (when (.isEmpty? (:outqueue client))
+    (when (.isEmpty (:outqueue client))
       (.register channel selector SelectionKey/OP_READ client))
     ))
 
@@ -166,7 +166,7 @@
     (.register srvchannel selector SelectionKey/OP_ACCEPT)
 
     (-> (Thread. (fn [] (handle-net-events selector srvchannel
-                                           fn-new-conn fn-err)))
+                                           fn-new-conn fn-err fn-msg)))
         .start)))
 
 (defn -main []

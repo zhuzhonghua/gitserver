@@ -29,24 +29,45 @@
               (+ 1 c))))))
 
 (defn client [host port]
-  (let [channel (SocketChannel/open)
-        msg (.getBytes "Hello Server")
-        len (ByteBuffer/allocate 4)
-        buf (ByteBuffer/allocate (alength msg))]
+  (let [send-to (fn [channel b-bytes]
+                  (let [buf (ByteBuffer/allocate (+ 4 (alength b-bytes)))]
+                    (.putInt buf (alength b-bytes))
+                    (.put buf b-bytes)
+                    (.write channel (.flip buf))))
+
+        read-from (fn [channel]
+                    (let [len-b-bytes (ByteBuffer/allocate 4)]
+                      (.read channel len-b-bytes)
+                      (while (.hasRemaining len-b-bytes)
+                        (.read channel len-b-bytes)
+                        )
+                      (.flip len-b-bytes)
+
+                      (let [len (.getInt len-b-bytes)
+                            msg-buf (ByteBuffer/allocate len)]
+                        (.read channel msg-buf)
+                        (while (.hasRemaining msg-buf)
+                          (.read channel msg-buf))
+
+                        (.array msg-buf)
+                        )))
+
+        channel (SocketChannel/open)
+
+        ]
 
     (println "connecting server" host port)
-    (.configureBlocking channel false)
+    (.configureBlocking channel true)
     (.connect channel (InetSocketAddress. host port))
     (while (not (.finishConnect channel))
       (Thread/sleep 500))
     (println "connect server success " host port)
 
-    (.putInt len (alength msg))
-    (.put buf msg)
-
-    (.write channel (.flip len))
-    (.write channel (.flip buf))
+    (send-to channel (.getBytes "Hello Server"))
     (println "write success")
+
+    (println "recv" (String. (read-from channel)))
+
     (Thread/sleep 500000000)
     ))
 
